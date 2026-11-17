@@ -8,3 +8,6 @@ onnxruntime==1.17.3
 onnxsim==0.4.36
 opencv-python-headless==4.10.0.84
 pillow
+fastapi==0.115.6
+uvicorn==0.34.0
+python-multipart==0.0.20

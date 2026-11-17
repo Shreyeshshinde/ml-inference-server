@@ -36,7 +36,10 @@ add_library(server_core STATIC
   src/version.cpp
   src/preprocess.cpp
   src/postprocess.cpp
-  src/model_runner.cpp)
+  src/model_runner.cpp
+  src/config.cpp
+  src/metrics.cpp
+  src/server.cpp)
 target_include_directories(server_core PUBLIC include)
 # third_party headers are marked SYSTEM so their warnings don't break our -Wall build.
 target_include_directories(server_core SYSTEM PUBLIC third_party)
@@ -62,8 +65,12 @@ add_executable(unit_tests
   tests/test_setup.cpp
   tests/test_preprocess.cpp
   tests/test_postprocess.cpp
-  tests/test_model_runner.cpp)
+  tests/test_model_runner.cpp
+  tests/test_config.cpp
+  tests/test_server.cpp)
 target_link_libraries(unit_tests PRIVATE server_core GTest::gtest_main)
-target_compile_definitions(unit_tests PRIVATE MIS_MODELS_DIR="${CMAKE_SOURCE_DIR}/models")
+target_compile_definitions(unit_tests PRIVATE
+  MIS_MODELS_DIR="${CMAKE_SOURCE_DIR}/models"
+  MIS_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 include(GoogleTest)
 gtest_discover_tests(unit_tests)
