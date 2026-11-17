@@ -1,0 +1,56 @@
+cmake_minimum_required(VERSION 3.20)
+project(ml_inference_server LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release)
+endif()
+
+# Quality bar: warnings on everywhere, optional AddressSanitizer for leak checks.
+add_compile_options(-Wall -Wextra)
+option(ENABLE_ASAN "Build with AddressSanitizer" OFF)
+if(ENABLE_ASAN)
+  add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
+  add_link_options(-fsanitize=address)
+endif()
+
+# ---- Dependencies ----
+find_package(OpenCV 4 REQUIRED COMPONENTS core imgproc imgcodecs)
+find_package(Threads REQUIRED)
+
+# ONNX Runtime ships as a prebuilt tarball (see scripts/setup_deps.sh), not a CMake package,
+# so we point at its folder and create an imported target by hand.
+set(ONNXRUNTIME_ROOT "/opt/onnxruntime" CACHE PATH "ONNX Runtime install folder")
+find_library(ONNXRUNTIME_LIB onnxruntime PATHS "${ONNXRUNTIME_ROOT}/lib" REQUIRED NO_DEFAULT_PATH)
+add_library(onnxruntime SHARED IMPORTED)
+set_target_properties(onnxruntime PROPERTIES
+  IMPORTED_LOCATION "${ONNXRUNTIME_LIB}"
+  INTERFACE_INCLUDE_DIRECTORIES "${ONNXRUNTIME_ROOT}/include")
+
+# ---- Core library: everything except main(), so tests can link it too ----
+add_library(server_core STATIC src/version.cpp)
+target_include_directories(server_core PUBLIC include)
+# third_party headers are marked SYSTEM so their warnings don't break our -Wall build.
+target_include_directories(server_core SYSTEM PUBLIC third_party)
+target_link_libraries(server_core PUBLIC onnxruntime ${OpenCV_LIBS} Threads::Threads)
+# Bake the ORT lib path into binaries so they run without setting LD_LIBRARY_PATH.
+set(CMAKE_BUILD_RPATH "${ONNXRUNTIME_ROOT}/lib")
+
+add_executable(inference_server src/main.cpp)
+target_link_libraries(inference_server PRIVATE server_core)
+
+# ---- Tests ----
+include(FetchContent)
+FetchContent_Declare(googletest
+  URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.tar.gz)
+FetchContent_MakeAvailable(googletest)
+
+enable_testing()
+add_executable(unit_tests tests/test_setup.cpp)
+target_link_libraries(unit_tests PRIVATE server_core GTest::gtest_main)
+include(GoogleTest)
+gtest_discover_tests(unit_tests)

@@ -1,0 +1,23 @@
+# Build output
+build/
+build-*/
+cmake-build-*/
+
+# Models and datasets are downloaded by scripts, never committed
+models/*
+!models/.gitkeep
+data/*
+!data/.gitkeep
+!data/imagenet_labels.txt
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+*.swp
