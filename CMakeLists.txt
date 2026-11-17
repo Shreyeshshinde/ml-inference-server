@@ -32,7 +32,11 @@ set_target_properties(onnxruntime PROPERTIES
   INTERFACE_INCLUDE_DIRECTORIES "${ONNXRUNTIME_ROOT}/include")
 
 # ---- Core library: everything except main(), so tests can link it too ----
-add_library(server_core STATIC src/version.cpp)
+add_library(server_core STATIC
+  src/version.cpp
+  src/preprocess.cpp
+  src/postprocess.cpp
+  src/model_runner.cpp)
 target_include_directories(server_core PUBLIC include)
 # third_party headers are marked SYSTEM so their warnings don't break our -Wall build.
 target_include_directories(server_core SYSTEM PUBLIC third_party)
@@ -43,6 +47,10 @@ set(CMAKE_BUILD_RPATH "${ONNXRUNTIME_ROOT}/lib")
 add_executable(inference_server src/main.cpp)
 target_link_libraries(inference_server PRIVATE server_core)
 
+# CLI that classifies image files; used to compare C++ results against Python.
+add_executable(classify tools/classify.cpp)
+target_link_libraries(classify PRIVATE server_core)
+
 # ---- Tests ----
 include(FetchContent)
 FetchContent_Declare(googletest
@@ -50,7 +58,12 @@ FetchContent_Declare(googletest
 FetchContent_MakeAvailable(googletest)
 
 enable_testing()
-add_executable(unit_tests tests/test_setup.cpp)
+add_executable(unit_tests
+  tests/test_setup.cpp
+  tests/test_preprocess.cpp
+  tests/test_postprocess.cpp
+  tests/test_model_runner.cpp)
 target_link_libraries(unit_tests PRIVATE server_core GTest::gtest_main)
+target_compile_definitions(unit_tests PRIVATE MIS_MODELS_DIR="${CMAKE_SOURCE_DIR}/models")
 include(GoogleTest)
 gtest_discover_tests(unit_tests)

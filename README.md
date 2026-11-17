@@ -22,6 +22,18 @@ ctest --test-dir build --output-on-failure
 ./build/inference_server
 ```
 
+### Export models and verify
+
+```bash
+python3 -m venv ~/venvs/mis
+~/venvs/mis/bin/pip install -r python/requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
+bash scripts/download_data.sh                    # Imagenette, about 340 MB
+~/venvs/mis/bin/python python/export_onnx.py     # models/*.onnx + data/imagenet_labels.txt
+~/venvs/mis/bin/python python/verify_onnx.py     # PyTorch vs ONNX Runtime, max abs diff < 1e-4
+~/venvs/mis/bin/python python/compare_cpp_python.py   # C++ top-5 vs Python top-5 on 20 images
+./build/classify models/resnet50.onnx data/imagenet_labels.txt path/to/image.jpg
+```
+
 ## API
 
 To be added.

@@ -1,0 +1,10 @@
+# CPU-only PyTorch wheels: install with
+#   pip install -r python/requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.5.1
+torchvision==0.20.1
+numpy<2
+onnx==1.17.0
+onnxruntime==1.17.3
+onnxsim==0.4.36
+opencv-python-headless==4.10.0.84
+pillow
