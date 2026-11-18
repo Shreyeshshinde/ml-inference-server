@@ -39,11 +39,16 @@ add_library(server_core STATIC
   src/model_runner.cpp
   src/config.cpp
   src/metrics.cpp
-  src/server.cpp)
+  src/server.cpp
+  src/batcher.cpp)
 target_include_directories(server_core PUBLIC include)
 # third_party headers are marked SYSTEM so their warnings don't break our -Wall build.
 target_include_directories(server_core SYSTEM PUBLIC third_party)
 target_link_libraries(server_core PUBLIC onnxruntime ${OpenCV_LIBS} Threads::Threads)
+# httplib's default listen backlog is 5 pending connections; bursts beyond that are
+# dropped by the kernel before our 503 logic ever runs. PUBLIC so every file that
+# includes httplib.h sees the same value.
+target_compile_definitions(server_core PUBLIC CPPHTTPLIB_LISTEN_BACKLOG=1024)
 # Bake the ORT lib path into binaries so they run without setting LD_LIBRARY_PATH.
 set(CMAKE_BUILD_RPATH "${ONNXRUNTIME_ROOT}/lib")
 
@@ -67,7 +72,9 @@ add_executable(unit_tests
   tests/test_postprocess.cpp
   tests/test_model_runner.cpp
   tests/test_config.cpp
-  tests/test_server.cpp)
+  tests/test_server.cpp
+  tests/test_request_queue.cpp
+  tests/test_batcher.cpp)
 target_link_libraries(unit_tests PRIVATE server_core GTest::gtest_main)
 target_compile_definitions(unit_tests PRIVATE
   MIS_MODELS_DIR="${CMAKE_SOURCE_DIR}/models"

@@ -34,6 +34,15 @@ bash scripts/download_data.sh                    # Imagenette, about 340 MB
 ./build/classify models/resnet50.onnx data/imagenet_labels.txt path/to/image.jpg
 ```
 
+### Run the server
+
+```bash
+./build/inference_server --config config/server.json
+curl -F "image=@dog.jpg" "http://localhost:8080/v1/models/resnet50/predict?top_k=5"
+bash scripts/smoke_test.sh     # C++ server and Python baseline side by side
+bash scripts/batch_demo.sh     # concurrent load, prints the batch sizes that formed
+```
+
 ## API
 
 To be added.

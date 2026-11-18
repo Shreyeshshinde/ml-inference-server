@@ -15,7 +15,6 @@ namespace mis {
 namespace {
 
 using nlohmann::json;
-using Clock = std::chrono::steady_clock;  // monotonic: never jumps if system time changes
 
 double ms_between(Clock::time_point a, Clock::time_point b) {
     return std::chrono::duration<double, std::milli>(b - a).count();
@@ -41,13 +40,23 @@ void log_line(const std::string& line) {
 
 InferenceServer::InferenceServer(ServerConfig config, ServedModel model,
                                  std::vector<std::string> labels)
-    : config_(std::move(config)), model_(std::move(model)), labels_(std::move(labels)) {
+    : config_(std::move(config)), model_(std::move(model)) {
+    batcher_ = std::make_unique<Batcher>(model_.config, model_.runner, std::move(labels),
+                                         &metrics_);
+    batcher_->start();
+
     // Fixed-size HTTP thread pool: bounded concurrency instead of a thread per connection.
+    // Handler threads mostly sleep on a future while workers do the heavy compute.
     const int n = config_.http_threads;
     http_.new_task_queue = [n] { return new httplib::ThreadPool(static_cast<size_t>(n)); };
     // Bodies above this are rejected by httplib with 413 before our handler runs.
     http_.set_payload_max_length(config_.max_body_bytes);
     setup_routes();
+}
+
+InferenceServer::~InferenceServer() {
+    http_.stop();
+    batcher_->shutdown();
 }
 
 void InferenceServer::setup_routes() {
@@ -56,7 +65,12 @@ void InferenceServer::setup_routes() {
     });
 
     http_.Get("/metrics", [this](const httplib::Request&, httplib::Response& res) {
-        res.set_content(metrics_.to_prometheus(), "text/plain; version=0.0.4");
+        std::string text = metrics_.to_prometheus();
+        text += "# HELP mis_queue_length Requests waiting in the batch queue.\n"
+                "# TYPE mis_queue_length gauge\n"
+                "mis_queue_length " +
+                std::to_string(batcher_->queue_size()) + "\n";
+        res.set_content(text, "text/plain; version=0.0.4");
     });
 
     // ([^/]+) captures the model name; it arrives as req.matches[1].
@@ -89,6 +103,7 @@ void InferenceServer::setup_routes() {
 
 void InferenceServer::handle_predict(const httplib::Request& req, httplib::Response& res) {
     const auto t_start = Clock::now();
+    const auto deadline = t_start + std::chrono::milliseconds(model_.config.request_timeout_ms);
     metrics_.record_request();
     const std::string name = req.matches[1];
 
@@ -112,63 +127,58 @@ void InferenceServer::handle_predict(const httplib::Request& req, httplib::Respo
         } catch (const std::exception&) {
             return fail(400, "top_k must be an integer");
         }
-        if (k < 1 || k > model_.runner->num_classes()) {
-            return fail(400, "top_k out of range");
-        }
+        if (k < 1 || k > model_.runner->num_classes()) return fail(400, "top_k out of range");
     }
 
-    // --- Preprocess ---
-    const auto t_pre = Clock::now();
+    // Decode on the HTTP thread: it spreads JPEG decoding across many threads and lets
+    // us reject garbage with 400 before it ever reaches the queue.
     cv::Mat img = decode_image(req.get_file_value("image").content);
     if (img.empty()) return fail(400, "could not decode image");
-    std::vector<float> tensor;
-    try {
-        tensor = preprocess(img, model_.config.preprocess);
-    } catch (const std::exception& e) {
-        return fail(400, std::string("preprocess failed: ") + e.what());
+
+    auto fut = batcher_->submit(std::move(img), k, deadline);
+    if (!fut) {
+        metrics_.record_rejected();
+        return fail(503, "queue full, try again later");
     }
 
-    // --- Inference ---
-    const auto t_inf = Clock::now();
-    std::vector<float> logits;
+    // Sleep until a worker fulfills the promise or our deadline passes.
+    if (fut->wait_until(deadline) != std::future_status::ready) {
+        metrics_.record_timeout();
+        return fail(504, "timed out waiting for inference");
+    }
+
+    InferenceResult r;
     try {
-        const int s = model_.config.preprocess.crop;
-        logits = model_.runner->run(tensor.data(), 1, s, s);
+        r = fut->get();  // rethrows the worker's exception, if it set one
     } catch (const std::exception& e) {
         return fail(500, std::string("inference failed: ") + e.what());
     }
 
-    // --- Postprocess ---
-    const auto t_post = Clock::now();
-    auto probs = softmax(logits.data(), logits.size());
-    auto preds = top_k(probs, k, labels_);
-    const auto t_end = Clock::now();
-
     json predictions = json::array();
-    for (const auto& p : preds) {
+    for (const auto& p : r.predictions) {
         predictions.push_back({{"class_id", p.class_id}, {"label", p.label}, {"score", p.score}});
     }
-    const double total = ms_between(t_start, t_end);
+    const double total = ms_between(t_start, Clock::now());
     json body = {
         {"model", model_.config.name},
         {"version", model_.config.version},
         {"predictions", predictions},
-        {"batch_size", 1},  // no batching until Phase 3
+        {"batch_size", r.batch_size},
         {"latency_ms", total},
         {"timings_ms",
-         {{"queue_wait", 0.0},  // no queue until Phase 3
-          {"preprocess", ms_between(t_pre, t_inf)},
-          {"inference", ms_between(t_inf, t_post)},
-          {"postprocess", ms_between(t_post, t_end)}}},
+         {{"queue_wait", r.queue_wait_ms},
+          {"preprocess", r.preprocess_ms},
+          {"inference", r.inference_ms},
+          {"postprocess", r.postprocess_ms}}},
     };
     send_json(res, 200, body);
 
     char line[256];
     std::snprintf(line, sizeof(line),
-                  "predict model=%s status=200 batch=1 total_ms=%.2f pre_ms=%.2f inf_ms=%.2f "
-                  "post_ms=%.2f",
-                  name.c_str(), total, ms_between(t_pre, t_inf), ms_between(t_inf, t_post),
-                  ms_between(t_post, t_end));
+                  "predict model=%s status=200 batch=%d total_ms=%.2f queue_ms=%.2f "
+                  "pre_ms=%.2f inf_ms=%.2f post_ms=%.2f",
+                  name.c_str(), r.batch_size, total, r.queue_wait_ms, r.preprocess_ms,
+                  r.inference_ms, r.postprocess_ms);
     log_line(line);
 }
 

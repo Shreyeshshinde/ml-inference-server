@@ -25,12 +25,27 @@ class ServerTest : public ::testing::Test {
 protected:
     void SetUp() override {
         if (!std::filesystem::exists(kModelPath)) GTEST_SKIP() << "model not exported";
-        mis::ServerConfig cfg;
-        cfg.http_threads = 8;
-        cfg.max_body_bytes = 1024 * 1024;  // 1 MB so the 413 test stays small
+        start_server(default_model_config());
+    }
+
+    void TearDown() override { stop_server(); }
+
+    static mis::ModelConfig default_model_config() {
         mis::ModelConfig m;
         m.name = "mobilenet_v3_large";
         m.path = kModelPath;
+        m.max_batch_size = 8;
+        m.max_wait_ms = 5;
+        m.num_workers = 1;
+        return m;
+    }
+
+    // Tests that need different batching settings call this again with their own config.
+    void start_server(const mis::ModelConfig& m, int http_threads = 8) {
+        stop_server();
+        mis::ServerConfig cfg;
+        cfg.http_threads = http_threads;
+        cfg.max_body_bytes = 1024 * 1024;  // 1 MB so the 413 test stays small
         server_ = std::make_unique<mis::InferenceServer>(
             cfg, mis::ServedModel{m, std::make_shared<mis::ModelRunner>(kModelPath)},
             mis::load_labels(kLabels));
@@ -41,9 +56,10 @@ protected:
         client_ = std::make_unique<httplib::Client>("127.0.0.1", port_);
     }
 
-    void TearDown() override {
+    void stop_server() {
         if (server_) server_->stop();
         if (thread_.joinable()) thread_.join();
+        server_.reset();
     }
 
     httplib::Result post_image(const std::string& bytes, const std::string& query = "",
@@ -149,6 +165,47 @@ TEST_F(ServerTest, RandomBytesNeverCrashTheServer) {
     auto health = client_->Get("/health");
     ASSERT_TRUE(health);
     EXPECT_EQ(health->status, 200);
+}
+
+TEST_F(ServerTest, FullQueueReturns503AndEveryOtherRequestSucceeds) {
+    // Queue of 1, batches of 1, one worker: a burst of 40 parallel requests cannot all
+    // fit, so some must be rejected with 503. Nothing else (no 500, no hang) is allowed.
+    auto m = default_model_config();
+    m.queue_limit = 1;
+    m.max_batch_size = 1;
+    m.max_wait_ms = 0;
+    start_server(m, /*http_threads=*/48);
+
+    const std::string img = encoded_test_image();
+    std::vector<int> statuses(40, 0);
+    std::vector<std::thread> clients;
+    for (int i = 0; i < 40; ++i) {
+        clients.emplace_back([&, i] {
+            httplib::Client c("127.0.0.1", port_);
+            httplib::MultipartFormDataItems items = {{"image", img, "img.jpg", "image/jpeg"}};
+            auto res = c.Post("/v1/models/mobilenet_v3_large/predict", items);
+            statuses[i] = res ? res->status : -static_cast<int>(res.error());
+        });
+    }
+    for (auto& t : clients) t.join();
+
+    int ok = 0, rejected = 0;
+    for (int s : statuses) {
+        EXPECT_TRUE(s == 200 || s == 503) << "unexpected status " << s;
+        ok += s == 200;
+        rejected += s == 503;
+    }
+    EXPECT_GT(ok, 0);
+    EXPECT_GT(rejected, 0);
+}
+
+TEST_F(ServerTest, SlowInferenceReturns504) {
+    auto m = default_model_config();
+    m.request_timeout_ms = 1;  // less than one mobilenet run
+    start_server(m);
+    auto res = post_image(encoded_test_image());
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 504);
 }
 
 TEST_F(ServerTest, MetricsCountsRequestsAndErrors) {

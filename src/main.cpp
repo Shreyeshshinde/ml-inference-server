@@ -38,6 +38,19 @@ int main(int argc, char** argv) {
                   << "loading model '" << mcfg.name << "' from " << mcfg.path << "\n";
         auto runner = std::make_shared<mis::ModelRunner>(mcfg.path, mcfg.intra_op_threads);
 
+        // Each worker runs ORT with intra_op_threads threads. More total threads than
+        // cores just makes them fight over the CPU, so warn about oversubscription.
+        const unsigned cores = std::thread::hardware_concurrency();
+        const int compute_threads = mcfg.num_workers * mcfg.intra_op_threads;
+        std::cerr << "batching: max_batch_size=" << mcfg.max_batch_size
+                  << " max_wait_ms=" << mcfg.max_wait_ms << " workers=" << mcfg.num_workers
+                  << " intra_op_threads=" << mcfg.intra_op_threads
+                  << " queue_limit=" << mcfg.queue_limit << "\n";
+        if (cores > 0 && compute_threads > static_cast<int>(cores)) {
+            std::cerr << "warning: workers x intra_op_threads = " << compute_threads
+                      << " exceeds " << cores << " cores\n";
+        }
+
         mis::InferenceServer server(cfg, {mcfg, runner}, std::move(labels));
 
         std::thread signal_thread([&] {
@@ -53,6 +66,10 @@ int main(int argc, char** argv) {
             std::cerr << "error: could not listen on " << cfg.host << ":" << cfg.port << "\n";
             return 1;
         }
+        // listen() returned: no new connections and in-flight HTTP requests are done.
+        // Now drain anything left in the batch queue and join the workers.
+        std::cerr << "draining batch queue\n";
+        server.drain();
         std::cerr << "server stopped\n";
         return 0;
     } catch (const std::exception& e) {
