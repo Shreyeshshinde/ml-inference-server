@@ -66,6 +66,7 @@ ServerConfig parse_config(const std::string& json_text) {
         cfg.max_body_bytes = static_cast<size_t>(j.value("max_body_mb", 10)) * 1024 * 1024;
         cfg.labels_path = j.value("labels_path", cfg.labels_path);
         cfg.models_dir = j.value("models_dir", cfg.models_dir);
+        cfg.log_requests = j.value("log_requests", cfg.log_requests);
 
         std::unordered_set<std::string> seen;
         for (const auto& mj : j.at("models")) {

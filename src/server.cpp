@@ -7,6 +7,7 @@
 
 #include <json.hpp>
 
+#include "logging.h"
 #include "postprocess.h"
 #include "preprocess.h"
 
@@ -200,16 +201,25 @@ void InferenceServer::handle_predict(const httplib::Request& req, httplib::Respo
         if (k < 1 || k > classes) return fail(400, "top_k out of range");
     }
 
+    // Cheap early rejection: if the queue is already full, answer 503 BEFORE spending
+    // CPU on JPEG decoding. Under overload, hundreds of rejected requests per second
+    // each decoding an image stole the CPU the inference workers needed, and
+    // throughput collapsed (measured in Phase 6). This check can race with other
+    // threads, which is fine: push() below still enforces the limit exactly.
+    auto reject = [&] {
+        metrics.record_rejected();
+        res.set_header("Retry-After", "1");  // tells well-behaved clients to back off
+        fail(503, "queue full, try again later");
+    };
+    if (entry->batcher->queue_size() >= static_cast<size_t>(cfg.queue_limit)) return reject();
+
     // Decode on the HTTP thread: it spreads JPEG decoding across many threads and lets
     // us reject garbage with 400 before it ever reaches the queue.
     cv::Mat img = decode_image(req.get_file_value("image").content);
     if (img.empty()) return fail(400, "could not decode image");
 
     auto fut = entry->batcher->submit(std::move(img), k, deadline);
-    if (!fut) {
-        metrics.record_rejected();
-        return fail(503, "queue full, try again later");
-    }
+    if (!fut) return reject();
 
     // Sleep until a worker fulfills the promise or our deadline passes.
     if (fut->wait_until(deadline) != std::future_status::ready) {
@@ -243,6 +253,7 @@ void InferenceServer::handle_predict(const httplib::Request& req, httplib::Respo
     };
     send_json(res, 200, body);
 
+    if (!request_logging()) return;
     char line[256];
     std::snprintf(line, sizeof(line),
                   "predict model=%s v=%d status=200 batch=%d total_ms=%.2f queue_ms=%.2f "

@@ -5,6 +5,7 @@
 #include <thread>
 
 #include "config.h"
+#include "logging.h"
 #include "model_registry.h"
 #include "postprocess.h"
 #include "server.h"
@@ -30,6 +31,7 @@ int main(int argc, char** argv) {
 
     try {
         mis::ServerConfig cfg = mis::load_config(config_path);
+        mis::set_request_logging(cfg.log_requests);
         auto labels = std::make_shared<const std::vector<std::string>>(
             mis::load_labels(cfg.labels_path));
         std::cerr << "ONNX Runtime " << mis::onnxruntime_version() << ", OpenCV "

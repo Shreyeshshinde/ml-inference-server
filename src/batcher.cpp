@@ -4,6 +4,7 @@
 #include <iostream>
 #include <stdexcept>
 
+#include "logging.h"
 #include "preprocess.h"
 
 namespace mis {
@@ -137,6 +138,7 @@ void Batcher::process_batch(std::vector<Entry>& batch, int worker_id) {
         }
         if (metrics_) metrics_->record_batch(n);
 
+        if (!request_logging()) return;
         char line[200];
         std::snprintf(line, sizeof(line),
                       "batch model=%s v=%d worker=%d size=%d pre_ms=%.2f inf_ms=%.2f "

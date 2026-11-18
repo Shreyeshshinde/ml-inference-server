@@ -1,0 +1,13 @@
+cpu: 13th Gen Intel(R) Core(TM) i7-1360P
+logical_cpus: 16
+ram_gb: 8.1
+os: Linux-6.18.58.1-microsoft-standard-WSL2-x86_64-with-glibc2.35
+server_cpus: 0-11
+client_cpus: 12-15
+run_seconds: 60
+repeats: 3
+warmup_requests: 50
+model: resnet50 (FP32)
+load_generator: locust (FastHttpUser, closed loop, 1 process)
+throughput: server-side successful responses / run_seconds
+cooldown_between_runs_s: 20

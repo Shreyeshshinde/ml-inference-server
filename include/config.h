@@ -31,6 +31,8 @@ struct ServerConfig {
     std::string labels_path = "data/imagenet_labels.txt";
     // Reload requests may only load files from inside this folder.
     std::string models_dir = "models";
+    // Log a line per successful request and per batch (errors are always logged).
+    bool log_requests = true;
     std::vector<ModelConfig> models;
 };
 

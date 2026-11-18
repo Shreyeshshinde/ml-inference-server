@@ -11,3 +11,6 @@ pillow
 fastapi==0.115.6
 uvicorn==0.34.0
 python-multipart==0.0.20
+locust==2.32.4
+matplotlib==3.9.2
+pandas==2.2.3
