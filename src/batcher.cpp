@@ -16,15 +16,23 @@ double ms_between(Clock::time_point a, Clock::time_point b) {
 
 }  // namespace
 
-Batcher::Batcher(ModelConfig config, std::shared_ptr<ModelRunner> runner,
-                 std::vector<std::string> labels, Metrics* metrics)
+Batcher::Batcher(ModelConfig config, std::shared_ptr<const ModelVersion> initial,
+                 Labels labels, Metrics* metrics)
     : config_(std::move(config)),
-      runner_(std::move(runner)),
-      labels_(std::move(labels)),
+      current_(std::move(initial)),
+      labels_(labels ? std::move(labels) : std::make_shared<const std::vector<std::string>>()),
       metrics_(metrics),
-      queue_(static_cast<size_t>(config_.queue_limit)) {}
+      queue_(static_cast<size_t>(config_.queue_limit)) {
+    if (!current_ || !current_->runner) throw std::invalid_argument("Batcher needs a model");
+}
 
 Batcher::~Batcher() { shutdown(); }
+
+std::shared_ptr<const ModelVersion> Batcher::swap_model(
+    std::shared_ptr<const ModelVersion> next) {
+    // One indivisible step: every reader sees either the old pointer or the new one.
+    return std::atomic_exchange(&current_, std::move(next));
+}
 
 void Batcher::start() {
     for (int i = 0; i < config_.num_workers; ++i) {
@@ -99,18 +107,20 @@ void Batcher::process_batch(std::vector<Entry>& batch, int worker_id) {
         const auto t_inf = Clock::now();
 
         // 2. One model run for the whole batch.
-        // Local copy of the shared_ptr keeps this model alive for the whole run
-        // (matters in Phase 4 when the model can be swapped while we run).
-        std::shared_ptr<ModelRunner> runner = runner_;
-        std::vector<float> logits = runner->run(input.data(), n, pcfg.crop, pcfg.crop);
+        // Take our own copy of the current version ONCE per batch. If a reload swaps
+        // current_ while we run, this copy keeps the old model alive until we finish,
+        // and the whole batch is computed by a single, consistent version.
+        const std::shared_ptr<const ModelVersion> model = std::atomic_load(&current_);
+        std::vector<float> logits = model->runner->run(input.data(), n, pcfg.crop, pcfg.crop);
         const auto t_post = Clock::now();
 
         // 3. Split the [N, classes] output: row i belongs to request i.
-        const size_t classes = static_cast<size_t>(runner->num_classes());
+        const size_t classes = static_cast<size_t>(model->runner->num_classes());
         std::vector<InferenceResult> results(n);
         for (int i = 0; i < n; ++i) {
             auto probs = softmax(logits.data() + i * classes, classes);
-            results[i].predictions = top_k(probs, live[i]->value.top_k, labels_);
+            results[i].predictions = top_k(probs, live[i]->value.top_k, *labels_);
+            results[i].model_version = model->version;
         }
         const auto t_end = Clock::now();
 
@@ -129,8 +139,10 @@ void Batcher::process_batch(std::vector<Entry>& batch, int worker_id) {
 
         char line[200];
         std::snprintf(line, sizeof(line),
-                      "batch model=%s worker=%d size=%d pre_ms=%.2f inf_ms=%.2f post_ms=%.2f\n",
-                      config_.name.c_str(), worker_id, n, ms_between(t_start, t_inf),
+                      "batch model=%s v=%d worker=%d size=%d pre_ms=%.2f inf_ms=%.2f "
+                      "post_ms=%.2f\n",
+                      config_.name.c_str(), model->version, worker_id, n,
+                      ms_between(t_start, t_inf),
                       ms_between(t_inf, t_post), ms_between(t_post, t_end));
         std::cerr << line;  // single << of a full line: no interleaving mid-line
     } catch (...) {

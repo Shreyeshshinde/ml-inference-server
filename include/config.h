@@ -29,6 +29,8 @@ struct ServerConfig {
     int http_threads = 32;
     size_t max_body_bytes = 10 * 1024 * 1024;
     std::string labels_path = "data/imagenet_labels.txt";
+    // Reload requests may only load files from inside this folder.
+    std::string models_dir = "models";
     std::vector<ModelConfig> models;
 };
 

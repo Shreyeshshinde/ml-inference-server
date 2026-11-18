@@ -4,6 +4,7 @@
   "http_threads": 32,
   "max_body_mb": 10,
   "labels_path": "data/imagenet_labels.txt",
+  "models_dir": "models",
   "models": [
     {
       "name": "resnet50",

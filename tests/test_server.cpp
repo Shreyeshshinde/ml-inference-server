@@ -1,7 +1,9 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
+#include <mutex>
 #include <random>
+#include <set>
 #include <thread>
 
 #include <json.hpp>
@@ -40,15 +42,21 @@ protected:
         return m;
     }
 
-    // Tests that need different batching settings call this again with their own config.
+    // Tests that need different settings (or several models) call this again.
     void start_server(const mis::ModelConfig& m, int http_threads = 8) {
+        start_server(std::vector<mis::ModelConfig>{m}, http_threads);
+    }
+
+    void start_server(const std::vector<mis::ModelConfig>& models, int http_threads = 8) {
         stop_server();
         mis::ServerConfig cfg;
         cfg.http_threads = http_threads;
         cfg.max_body_bytes = 1024 * 1024;  // 1 MB so the 413 test stays small
+        cfg.models_dir = MIS_MODELS_DIR;
+        cfg.models = models;
+        auto labels = std::make_shared<const std::vector<std::string>>(mis::load_labels(kLabels));
         server_ = std::make_unique<mis::InferenceServer>(
-            cfg, mis::ServedModel{m, std::make_shared<mis::ModelRunner>(kModelPath)},
-            mis::load_labels(kLabels));
+            cfg, std::make_shared<mis::ModelRegistry>(cfg, labels));
         port_ = server_->bind_to_any_port();
         ASSERT_GT(port_, 0);
         thread_ = std::thread([this] { server_->listen_after_bind(); });
@@ -208,11 +216,128 @@ TEST_F(ServerTest, SlowInferenceReturns504) {
     EXPECT_EQ(res->status, 504);
 }
 
+TEST_F(ServerTest, ServesTwoModelsAndListsThem) {
+    auto a = default_model_config();
+    auto b = default_model_config();
+    b.name = "second";
+    b.version = 7;
+    start_server({a, b});
+
+    auto list = client_->Get("/v1/models");
+    ASSERT_TRUE(list);
+    ASSERT_EQ(list->status, 200);
+    auto models = json::parse(list->body)["models"];
+    ASSERT_EQ(models.size(), 2u);
+    EXPECT_EQ(models[0]["name"], "mobilenet_v3_large");
+    EXPECT_EQ(models[1]["name"], "second");
+    EXPECT_EQ(models[1]["version"], 7);
+    EXPECT_EQ(models[1]["status"], "ready");
+    EXPECT_EQ(models[0]["settings"]["max_batch_size"], 8);
+
+    auto ra = post_image(encoded_test_image(), "", "mobilenet_v3_large");
+    auto rb = post_image(encoded_test_image(), "", "second");
+    ASSERT_TRUE(ra && rb);
+    EXPECT_EQ(ra->status, 200);
+    EXPECT_EQ(rb->status, 200);
+    EXPECT_EQ(json::parse(rb->body)["model"], "second");
+    EXPECT_EQ(json::parse(rb->body)["version"], 7);
+}
+
+TEST_F(ServerTest, ReloadEndpoint) {
+    auto ok = client_->Post("/v1/models/mobilenet_v3_large/reload", "", "application/json");
+    ASSERT_TRUE(ok);
+    ASSERT_EQ(ok->status, 200) << ok->body;
+    auto j = json::parse(ok->body);
+    EXPECT_EQ(j["old_version"], 1);
+    EXPECT_EQ(j["new_version"], 2);
+
+    auto pred = post_image(encoded_test_image());
+    ASSERT_TRUE(pred);
+    EXPECT_EQ(json::parse(pred->body)["version"], 2);
+
+    auto unknown = client_->Post("/v1/models/nope/reload", "", "application/json");
+    ASSERT_TRUE(unknown);
+    EXPECT_EQ(unknown->status, 404);
+
+    auto bad_json = client_->Post("/v1/models/mobilenet_v3_large/reload", "{oops",
+                                  "application/json");
+    ASSERT_TRUE(bad_json);
+    EXPECT_EQ(bad_json->status, 400);
+
+    auto outside = client_->Post("/v1/models/mobilenet_v3_large/reload",
+                                 R"({"path": "/etc/passwd"})", "application/json");
+    ASSERT_TRUE(outside);
+    EXPECT_EQ(outside->status, 400);
+
+    auto missing = client_->Post("/v1/models/mobilenet_v3_large/reload",
+                                 json{{"path", std::string(MIS_MODELS_DIR) + "/nope.onnx"}}.dump(),
+                                 "application/json");
+    ASSERT_TRUE(missing);
+    EXPECT_EQ(missing->status, 400);
+
+    // Failed reloads must leave the working version in place.
+    auto still = post_image(encoded_test_image());
+    ASSERT_TRUE(still);
+    EXPECT_EQ(still->status, 200);
+    EXPECT_EQ(json::parse(still->body)["version"], 2);
+}
+
+TEST_F(ServerTest, ReloadUnderContinuousTrafficDropsNothing) {
+    // 8 clients send requests nonstop while we reload 3 times. Every single request
+    // must return 200, and we must see answers from both old and new versions.
+    auto m = default_model_config();
+    m.num_workers = 2;
+    start_server(m, /*http_threads=*/16);
+
+    std::atomic<bool> stop{false};
+    std::atomic<int> ok{0}, failed{0};
+    std::mutex versions_mu;
+    std::set<int> versions_seen;
+    const std::string img = encoded_test_image();
+    std::vector<std::thread> clients;
+    for (int c = 0; c < 8; ++c) {
+        clients.emplace_back([&] {
+            httplib::Client cli("127.0.0.1", port_);
+            httplib::MultipartFormDataItems items = {{"image", img, "img.jpg", "image/jpeg"}};
+            while (!stop) {
+                auto res = cli.Post("/v1/models/mobilenet_v3_large/predict", items);
+                if (res && res->status == 200) {
+                    ++ok;
+                    std::lock_guard<std::mutex> lock(versions_mu);
+                    versions_seen.insert(json::parse(res->body)["version"].get<int>());
+                } else {
+                    ++failed;
+                }
+            }
+        });
+    }
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    for (int i = 0; i < 3; ++i) {
+        auto r = client_->Post("/v1/models/mobilenet_v3_large/reload", "", "application/json");
+        ASSERT_TRUE(r);
+        EXPECT_EQ(r->status, 200) << r->body;
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    }
+    stop = true;
+    for (auto& t : clients) t.join();
+
+    std::cerr << "[reload test] ok=" << ok << " failed=" << failed
+              << " versions_seen=" << versions_seen.size() << "\n";
+    EXPECT_EQ(failed.load(), 0);
+    EXPECT_GT(ok.load(), 50);
+    EXPECT_EQ(versions_seen, (std::set<int>{1, 2, 3, 4}));
+}
+
 TEST_F(ServerTest, MetricsCountsRequestsAndErrors) {
     post_image(encoded_test_image());
     post_image("garbage");
     auto res = client_->Get("/metrics");
     ASSERT_TRUE(res);
-    EXPECT_NE(res->body.find("mis_requests_total 2"), std::string::npos) << res->body;
-    EXPECT_NE(res->body.find("mis_errors_total 1"), std::string::npos) << res->body;
+    EXPECT_NE(res->body.find(R"(mis_requests_total{model="mobilenet_v3_large"} 2)"),
+              std::string::npos)
+        << res->body;
+    EXPECT_NE(res->body.find(R"(mis_errors_total{model="mobilenet_v3_large"} 1)"),
+              std::string::npos)
+        << res->body;
 }

@@ -5,6 +5,7 @@
 #include <thread>
 
 #include "config.h"
+#include "model_registry.h"
 #include "postprocess.h"
 #include "server.h"
 #include "version.h"
@@ -29,29 +30,24 @@ int main(int argc, char** argv) {
 
     try {
         mis::ServerConfig cfg = mis::load_config(config_path);
-        auto labels = mis::load_labels(cfg.labels_path);
-
-        // Phase 2 serves a single model: the first one in the config.
-        mis::ModelConfig mcfg = cfg.models.front();
+        auto labels = std::make_shared<const std::vector<std::string>>(
+            mis::load_labels(cfg.labels_path));
         std::cerr << "ONNX Runtime " << mis::onnxruntime_version() << ", OpenCV "
-                  << mis::opencv_version() << "\n"
-                  << "loading model '" << mcfg.name << "' from " << mcfg.path << "\n";
-        auto runner = std::make_shared<mis::ModelRunner>(mcfg.path, mcfg.intra_op_threads);
+                  << mis::opencv_version() << "\n";
 
-        // Each worker runs ORT with intra_op_threads threads. More total threads than
-        // cores just makes them fight over the CPU, so warn about oversubscription.
+        // Each worker runs ORT with intra_op_threads threads. Summed over ALL models,
+        // more compute threads than cores just makes them fight over the CPU.
         const unsigned cores = std::thread::hardware_concurrency();
-        const int compute_threads = mcfg.num_workers * mcfg.intra_op_threads;
-        std::cerr << "batching: max_batch_size=" << mcfg.max_batch_size
-                  << " max_wait_ms=" << mcfg.max_wait_ms << " workers=" << mcfg.num_workers
-                  << " intra_op_threads=" << mcfg.intra_op_threads
-                  << " queue_limit=" << mcfg.queue_limit << "\n";
+        int compute_threads = 0;
+        for (const auto& m : cfg.models) compute_threads += m.num_workers * m.intra_op_threads;
         if (cores > 0 && compute_threads > static_cast<int>(cores)) {
-            std::cerr << "warning: workers x intra_op_threads = " << compute_threads
+            std::cerr << "warning: sum of workers x intra_op_threads = " << compute_threads
                       << " exceeds " << cores << " cores\n";
         }
 
-        mis::InferenceServer server(cfg, {mcfg, runner}, std::move(labels));
+        // Loads, warms up and starts every model in the config.
+        auto registry = std::make_shared<mis::ModelRegistry>(cfg, labels);
+        mis::InferenceServer server(cfg, registry);
 
         std::thread signal_thread([&] {
             int sig = 0;
@@ -67,8 +63,8 @@ int main(int argc, char** argv) {
             return 1;
         }
         // listen() returned: no new connections and in-flight HTTP requests are done.
-        // Now drain anything left in the batch queue and join the workers.
-        std::cerr << "draining batch queue\n";
+        // Now drain anything left in the batch queues and join the workers.
+        std::cerr << "draining batch queues\n";
         server.drain();
         std::cerr << "server stopped\n";
         return 0;

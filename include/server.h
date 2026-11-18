@@ -2,27 +2,18 @@
 
 #include <memory>
 #include <string>
-#include <vector>
 
 #include <httplib.h>
 
-#include "batcher.h"
 #include "config.h"
-#include "metrics.h"
-#include "model_runner.h"
+#include "model_registry.h"
 
 namespace mis {
 
-// One loaded model plus its settings.
-struct ServedModel {
-    ModelConfig config;
-    std::shared_ptr<ModelRunner> runner;
-};
-
-// HTTP front end. Phase 3: one model, requests go through a dynamic batcher.
+// HTTP front end. Routes each request to its model's batcher through the registry.
 class InferenceServer {
 public:
-    InferenceServer(ServerConfig config, ServedModel model, std::vector<std::string> labels);
+    InferenceServer(ServerConfig config, std::shared_ptr<ModelRegistry> registry);
     ~InferenceServer();
 
     // Blocks serving on config.host:config.port until stop() is called.
@@ -34,23 +25,21 @@ public:
     void wait_until_ready() const { http_.wait_until_ready(); }
 
     // Thread-safe. Stops accepting connections; listen() returns once in-flight
-    // HTTP requests have finished (the batcher keeps running so they can finish).
+    // HTTP requests have finished (the batchers keep running so they can finish).
     void stop() { http_.stop(); }
 
-    // Second half of graceful shutdown: drain the batch queue and join workers.
+    // Second half of graceful shutdown: drain every model's queue and join workers.
     // Call after listen() has returned.
-    void drain() { batcher_->shutdown(); }
-
-    const Metrics& metrics() const { return metrics_; }
+    void drain() { registry_->shutdown(); }
 
 private:
     void setup_routes();
     void handle_predict(const httplib::Request& req, httplib::Response& res);
+    void handle_reload(const httplib::Request& req, httplib::Response& res);
+    void handle_list_models(httplib::Response& res);
 
     ServerConfig config_;
-    ServedModel model_;
-    Metrics metrics_;  // declared before batcher_ because the batcher points at it
-    std::unique_ptr<Batcher> batcher_;
+    std::shared_ptr<ModelRegistry> registry_;
     httplib::Server http_;
 };
 

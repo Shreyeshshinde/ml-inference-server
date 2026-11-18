@@ -41,6 +41,11 @@ bash scripts/download_data.sh                    # Imagenette, about 340 MB
 curl -F "image=@dog.jpg" "http://localhost:8080/v1/models/resnet50/predict?top_k=5"
 bash scripts/smoke_test.sh     # C++ server and Python baseline side by side
 bash scripts/batch_demo.sh     # concurrent load, prints the batch sizes that formed
+bash scripts/reload_demo.sh    # reloads resnet50 under live traffic, counts failures
+
+curl http://localhost:8080/v1/models
+curl -X POST http://localhost:8080/v1/models/resnet50/reload \
+     -H 'Content-Type: application/json' -d '{"path": "models/resnet50.onnx", "version": 2}'
 ```
 
 ## API

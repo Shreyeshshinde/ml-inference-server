@@ -40,7 +40,8 @@ add_library(server_core STATIC
   src/config.cpp
   src/metrics.cpp
   src/server.cpp
-  src/batcher.cpp)
+  src/batcher.cpp
+  src/model_registry.cpp)
 target_include_directories(server_core PUBLIC include)
 # third_party headers are marked SYSTEM so their warnings don't break our -Wall build.
 target_include_directories(server_core SYSTEM PUBLIC third_party)
@@ -74,7 +75,8 @@ add_executable(unit_tests
   tests/test_config.cpp
   tests/test_server.cpp
   tests/test_request_queue.cpp
-  tests/test_batcher.cpp)
+  tests/test_batcher.cpp
+  tests/test_model_registry.cpp)
 target_link_libraries(unit_tests PRIVATE server_core GTest::gtest_main)
 target_compile_definitions(unit_tests PRIVATE
   MIS_MODELS_DIR="${CMAKE_SOURCE_DIR}/models"

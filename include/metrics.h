@@ -3,11 +3,18 @@
 #include <atomic>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace mis {
 
-// Lock-free counters. std::atomic lets many threads increment without a mutex.
-// Per-model labels and latency percentiles are added in Phase 7.
+// Plain copy of one model's counters at a moment in time.
+struct MetricsSnapshot {
+    uint64_t requests = 0, errors = 0, rejected = 0, timeouts = 0, expired = 0;
+    uint64_t batch_failures = 0, batches = 0, batched_items = 0;
+};
+
+// Lock-free counters for ONE model. std::atomic lets many threads increment without
+// a mutex. Latency percentiles are added in Phase 7.
 class Metrics {
 public:
     void record_request() { inc(requests_); }
@@ -23,9 +30,7 @@ public:
 
     uint64_t batches() const { return batches_.load(); }
     uint64_t batched_items() const { return batched_items_.load(); }
-
-    // Prometheus text exposition format.
-    std::string to_prometheus() const;
+    MetricsSnapshot snapshot() const;
 
 private:
     static void inc(std::atomic<uint64_t>& c) { c.fetch_add(1, std::memory_order_relaxed); }
@@ -39,5 +44,17 @@ private:
     std::atomic<uint64_t> batches_{0};
     std::atomic<uint64_t> batched_items_{0};
 };
+
+// Everything /metrics shows for one model.
+struct ModelSample {
+    std::string model;
+    int version = 0;
+    size_t queue_length = 0;
+    MetricsSnapshot counters;
+};
+
+// Prometheus text format: each metric family's HELP/TYPE once, then one sample per
+// model with a model="..." label.
+std::string render_prometheus(const std::vector<ModelSample>& samples);
 
 }  // namespace mis

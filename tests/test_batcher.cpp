@@ -43,6 +43,13 @@ protected:
         if (!std::filesystem::exists(kModel)) GTEST_SKIP() << "model not exported";
         runner_ = std::make_shared<mis::ModelRunner>(kModel);
     }
+    std::shared_ptr<const mis::ModelVersion> v1(int version = 1) const {
+        auto mv = std::make_shared<mis::ModelVersion>();
+        mv->version = version;
+        mv->path = kModel;
+        mv->runner = runner_;
+        return mv;
+    }
     std::shared_ptr<mis::ModelRunner> runner_;
 };
 
@@ -60,7 +67,7 @@ TEST_F(BatcherTest, FiftyParallelRequestsEachGetTheirOwnCorrectResult) {
     }
 
     mis::Metrics metrics;
-    mis::Batcher batcher(small_config(), runner_, {}, &metrics);
+    mis::Batcher batcher(small_config(), v1(), nullptr, &metrics);
     batcher.start();
 
     // 50 threads submit at the same time; request r uses image r % 5.
@@ -93,7 +100,7 @@ TEST_F(BatcherTest, FiftyParallelRequestsEachGetTheirOwnCorrectResult) {
 TEST_F(BatcherTest, FullQueueRejects) {
     auto cfg = small_config();
     cfg.queue_limit = 2;
-    mis::Batcher batcher(cfg, runner_, {});
+    mis::Batcher batcher(cfg, v1(), nullptr);
     // Workers not started, so nothing drains the queue.
     auto a = batcher.submit(make_image(0), 5, far_deadline());
     auto b = batcher.submit(make_image(1), 5, far_deadline());
@@ -113,7 +120,7 @@ TEST_F(BatcherTest, ModelFailureFailsEveryRequestInTheBatch) {
     cfg.preprocess.resize_short = 120;
     cfg.preprocess.crop = 100;
     cfg.max_wait_ms = 50;
-    mis::Batcher batcher(cfg, runner_, {});
+    mis::Batcher batcher(cfg, v1(), nullptr);
     std::vector<std::future<mis::InferenceResult>> futs;
     for (int i = 0; i < 6; ++i) futs.push_back(*batcher.submit(make_image(i), 5, far_deadline()));
     batcher.start();
@@ -124,7 +131,7 @@ TEST_F(BatcherTest, ModelFailureFailsEveryRequestInTheBatch) {
 }
 
 TEST_F(BatcherTest, ShutdownDrainsQueuedRequests) {
-    mis::Batcher batcher(small_config(), runner_, {});
+    mis::Batcher batcher(small_config(), v1(), nullptr);
     std::vector<std::future<mis::InferenceResult>> futs;
     for (int i = 0; i < 20; ++i) futs.push_back(*batcher.submit(make_image(i % 5), 5, far_deadline()));
     batcher.start();
@@ -136,9 +143,33 @@ TEST_F(BatcherTest, ShutdownDrainsQueuedRequests) {
     EXPECT_FALSE(batcher.submit(make_image(0), 5, far_deadline()).has_value());
 }
 
+TEST_F(BatcherTest, SwapModelServesNewVersionAndFreesOldOne) {
+    mis::Batcher batcher(small_config(), v1(1), nullptr);
+    batcher.start();
+    EXPECT_EQ(batcher.submit(make_image(0), 5, far_deadline())->get().model_version, 1);
+
+    // Track the old runner without keeping it alive.
+    std::weak_ptr<mis::ModelRunner> old_runner;
+    {
+        auto v2 = std::make_shared<mis::ModelVersion>();
+        v2->version = 2;
+        v2->path = kModel;
+        v2->runner = std::make_shared<mis::ModelRunner>(kModel);
+        auto old = batcher.swap_model(v2);
+        EXPECT_EQ(old->version, 1);
+        old_runner = old->runner;
+        runner_.reset();  // the fixture's reference, so only `old` can keep it alive
+    }  // `old` goes out of scope here
+    // A worker may still hold its per-batch copy for a moment (it logs after replying),
+    // so give it a short grace period before asserting the old model was freed.
+    for (int i = 0; i < 100 && !old_runner.expired(); ++i) std::this_thread::sleep_for(10ms);
+    EXPECT_TRUE(old_runner.expired()) << "old model should be freed once nobody uses it";
+    EXPECT_EQ(batcher.submit(make_image(0), 5, far_deadline())->get().model_version, 2);
+}
+
 TEST_F(BatcherTest, ExpiredRequestsAreSkipped) {
     mis::Metrics metrics;
-    mis::Batcher batcher(small_config(), runner_, {}, &metrics);
+    mis::Batcher batcher(small_config(), v1(), nullptr, &metrics);
     auto past = mis::Clock::now() - 1ms;
     auto fut = batcher.submit(make_image(0), 5, past);
     batcher.start();
