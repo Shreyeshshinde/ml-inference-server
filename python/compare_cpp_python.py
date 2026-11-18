@@ -18,21 +18,48 @@ SCORE_TOL = 1e-4
 CLASSIFY_BIN = ROOT / "build" / "classify"
 
 
-def python_top5(sess, path):
+def python_probs(sess, path) -> np.ndarray:
     x = preprocess_bgr(load_image(path))[None]
     logits = sess.run(None, {"input": x})[0][0].astype(np.float64)
     probs = np.exp(logits - logits.max())
-    probs /= probs.sum()
-    ids = np.argsort(-probs)[:5]
-    return [(int(i), float(probs[i])) for i in ids]
+    return probs / probs.sum()
+
+
+def top5_matches(cpp_preds, probs) -> tuple[bool, float]:
+    """Rank by rank, C++ and Python must agree on the score; the class id must match
+    too, unless several classes share exactly that score (a tie). INT8 models produce
+    many exact ties, and C++ partial_sort and NumPy argsort order ties differently.
+    Returns (match, worst score difference)."""
+    py_ids = np.argsort(-probs)[:5]
+    worst, ok = 0.0, True
+    for k, p in enumerate(cpp_preds):
+        py_score = probs[py_ids[k]]
+        diff = abs(p["score"] - py_score)
+        worst = max(worst, diff)
+        same_class = p["class_id"] == py_ids[k]
+        tie = abs(probs[p["class_id"]] - py_score) < SCORE_TOL
+        ok &= diff < SCORE_TOL and (same_class or tie)
+    return ok, worst
 
 
 def main() -> None:
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--suffix", default="", help='model file suffix, e.g. "_int8"')
+    args = parser.parse_args()
+
     images = sample_val_images(20)
     all_ok = True
     for name in MODEL_NAMES:
-        model_path = MODELS_DIR / f"{name}.onnx"
-        sess = ort.InferenceSession(str(model_path), providers=["CPUExecutionProvider"])
+        model_path = MODELS_DIR / f"{name}{args.suffix}.onnx"
+        name = model_path.stem
+        # Same settings as the C++ classify tool (1 intra-op thread, full graph
+        # optimization). Thread count changes the order of floating-point sums, and in
+        # INT8 models those last-bit differences can flip a rounding step.
+        opts = ort.SessionOptions()
+        opts.intra_op_num_threads = 1
+        opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        sess = ort.InferenceSession(str(model_path), opts, providers=["CPUExecutionProvider"])
 
         out = subprocess.run([str(CLASSIFY_BIN), str(model_path), str(LABELS_PATH),
                               *map(str, images), "--json"],
@@ -42,14 +69,15 @@ def main() -> None:
 
         matches, worst = 0, 0.0
         for path, cpp in zip(images, cpp_results):
-            py = python_top5(sess, path)
-            cpp_ids = [p["class_id"] for p in cpp["predictions"]]
-            diffs = [abs(p["score"] - s) for p, (_, s) in zip(cpp["predictions"], py)]
-            worst = max(worst, max(diffs))
-            if cpp_ids == [i for i, _ in py] and max(diffs) < SCORE_TOL:
+            probs = python_probs(sess, path)
+            ok, diff = top5_matches(cpp["predictions"], probs)
+            worst = max(worst, diff)
+            if ok:
                 matches += 1
             else:
-                print(f"  MISMATCH {path.name}: cpp={cpp_ids} py={[i for i, _ in py]}")
+                cpp_ids = [p["class_id"] for p in cpp["predictions"]]
+                print(f"  MISMATCH {path.name}: cpp={cpp_ids} "
+                      f"py={np.argsort(-probs)[:5].tolist()}")
         ok = matches == len(images)
         all_ok &= ok
         print(f"{name:20s} top5_match={matches}/{len(images)}  "

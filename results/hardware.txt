@@ -1,0 +1,6 @@
+cpu: 13th Gen Intel(R) Core(TM) i7-1360P
+logical_cpus: 16
+ram_gb: 8.1
+os: Linux-6.18.58.1-microsoft-standard-WSL2-x86_64-with-glibc2.35
+onnxruntime: 1.17.3
+intra_op_threads: 4

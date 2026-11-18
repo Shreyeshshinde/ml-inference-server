@@ -34,6 +34,14 @@ bash scripts/download_data.sh                    # Imagenette, about 340 MB
 ./build/classify models/resnet50.onnx data/imagenet_labels.txt path/to/image.jpg
 ```
 
+### INT8 quantization
+
+```bash
+~/venvs/mis/bin/python python/quantize.py          # models/*_int8.onnx (calibrated on 200 train images)
+~/venvs/mis/bin/python python/eval_accuracy.py     # results/accuracy.csv (FP32 vs INT8 on Imagenette val)
+./build/inference_server --config config/server_int8.json   # serve the INT8 models
+```
+
 ### Run the server
 
 ```bash
