@@ -73,10 +73,13 @@ jobs:
       - name: Build
         run: cmake --build build -j "$(nproc)"
 
+      # setarch -R turns address randomization off for ctest and every test process it
+      # starts. With randomization only reduced (the sysctl above), LeakSanitizer's
+      # exit-time scan crashed in a different, already-passed test on each run.
       - name: Test under ASAN
         env:
           LSAN_OPTIONS: suppressions=${{ github.workspace }}/tests/lsan.supp
-        run: ctest --test-dir build --output-on-failure
+        run: setarch x86_64 -R ctest --test-dir build --output-on-failure
 
   format:
     name: clang-format
