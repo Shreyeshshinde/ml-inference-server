@@ -1,9 +1,9 @@
 #pragma once
 
+#include <httplib.h>
+
 #include <memory>
 #include <string>
-
-#include <httplib.h>
 
 #include "config.h"
 #include "model_registry.h"
@@ -12,7 +12,7 @@ namespace mis {
 
 // HTTP front end. Routes each request to its model's batcher through the registry.
 class InferenceServer {
-public:
+  public:
     InferenceServer(ServerConfig config, std::shared_ptr<ModelRegistry> registry);
     ~InferenceServer();
 
@@ -32,7 +32,7 @@ public:
     // Call after listen() has returned.
     void drain() { registry_->shutdown(); }
 
-private:
+  private:
     void setup_routes();
     void handle_predict(const httplib::Request& req, httplib::Response& res);
     void handle_reload(const httplib::Request& req, httplib::Response& res);

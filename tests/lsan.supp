@@ -1,0 +1,5 @@
+# LeakSanitizer suppressions for the ASAN CI job.
+# ONNX Runtime 1.17.3 (prebuilt) leaks 2 x 128 bytes of one-time global state at exit.
+# It is inside the library, not our code; suppressing by library keeps leaks in OUR
+# code failing the build.
+leak:libonnxruntime.so

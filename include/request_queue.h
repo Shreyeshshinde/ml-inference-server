@@ -16,7 +16,7 @@ using Clock = std::chrono::steady_clock;  // monotonic: never jumps when system 
 // and batcher workers (consumers). Generic over T so it can be unit-tested with ints.
 template <typename T>
 class BoundedQueue {
-public:
+  public:
     struct Entry {
         T value;
         Clock::time_point enqueued_at;  // stamped by push(); drives the batching deadline
@@ -88,7 +88,7 @@ public:
 
     size_t capacity() const { return capacity_; }
 
-private:
+  private:
     const size_t capacity_;
     mutable std::mutex mu_;  // mutable so size() can lock in a const method
     std::condition_variable cv_;

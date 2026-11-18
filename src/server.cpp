@@ -3,9 +3,8 @@
 #include <chrono>
 #include <cstdio>
 #include <iostream>
-#include <mutex>
-
 #include <json.hpp>
+#include <mutex>
 
 #include "logging.h"
 #include "postprocess.h"
@@ -64,26 +63,23 @@ void InferenceServer::setup_routes() {
         std::vector<ModelSample> samples;
         for (const auto& name : registry_->names()) {
             const ModelEntry* e = registry_->find(name);
-            samples.push_back({name, e->batcher->current_model()->version,
-                               e->batcher->queue_size(), e->metrics.snapshot()});
+            samples.push_back({name, e->batcher->current_model()->version, e->batcher->queue_size(),
+                               e->metrics.snapshot()});
         }
         res.set_content(render_prometheus(samples), "text/plain; version=0.0.4");
     });
 
-    http_.Get("/v1/models", [this](const httplib::Request&, httplib::Response& res) {
-        handle_list_models(res);
-    });
+    http_.Get("/v1/models",
+              [this](const httplib::Request&, httplib::Response& res) { handle_list_models(res); });
 
     // ([^/]+) captures the model name; it arrives as req.matches[1].
-    http_.Post(R"(/v1/models/([^/]+)/predict)",
-               [this](const httplib::Request& req, httplib::Response& res) {
-                   handle_predict(req, res);
-               });
+    http_.Post(
+        R"(/v1/models/([^/]+)/predict)",
+        [this](const httplib::Request& req, httplib::Response& res) { handle_predict(req, res); });
 
-    http_.Post(R"(/v1/models/([^/]+)/reload)",
-               [this](const httplib::Request& req, httplib::Response& res) {
-                   handle_reload(req, res);
-               });
+    http_.Post(
+        R"(/v1/models/([^/]+)/reload)",
+        [this](const httplib::Request& req, httplib::Response& res) { handle_reload(req, res); });
 
     // Last line of defense: any exception that escapes a handler becomes a 500
     // instead of killing the server.
@@ -239,6 +235,7 @@ void InferenceServer::handle_predict(const httplib::Request& req, httplib::Respo
         predictions.push_back({{"class_id", p.class_id}, {"label", p.label}, {"score", p.score}});
     }
     const double total = ms_between(t_start, Clock::now());
+    metrics.record_latency(total);
     json body = {
         {"model", name},
         {"version", r.model_version},  // the version that actually computed this answer
@@ -263,12 +260,16 @@ void InferenceServer::handle_predict(const httplib::Request& req, httplib::Respo
     log_line(line);
 }
 
-bool InferenceServer::listen() { return http_.listen(config_.host, config_.port); }
+bool InferenceServer::listen() {
+    return http_.listen(config_.host, config_.port);
+}
 
 int InferenceServer::bind_to_any_port(const std::string& host) {
     return http_.bind_to_any_port(host);
 }
 
-bool InferenceServer::listen_after_bind() { return http_.listen_after_bind(); }
+bool InferenceServer::listen_after_bind() {
+    return http_.listen_after_bind();
+}
 
 }  // namespace mis

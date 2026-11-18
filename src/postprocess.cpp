@@ -49,8 +49,8 @@ std::vector<Prediction> top_k(const std::vector<float>& probs, int k,
     result.reserve(k);
     for (int i = 0; i < k; ++i) {
         const int id = idx[i];
-        std::string label = id < static_cast<int>(labels.size()) ? labels[id]
-                                                                 : "class_" + std::to_string(id);
+        std::string label =
+            id < static_cast<int>(labels.size()) ? labels[id] : "class_" + std::to_string(id);
         result.push_back({id, std::move(label), probs[id]});
     }
     return result;

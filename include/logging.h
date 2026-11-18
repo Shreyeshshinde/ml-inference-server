@@ -12,8 +12,12 @@ inline std::atomic<bool>& request_logging_flag() {
     return enabled;
 }
 
-inline bool request_logging() { return request_logging_flag().load(std::memory_order_relaxed); }
+inline bool request_logging() {
+    return request_logging_flag().load(std::memory_order_relaxed);
+}
 
-inline void set_request_logging(bool on) { request_logging_flag().store(on); }
+inline void set_request_logging(bool on) {
+    request_logging_flag().store(on);
+}
 
 }  // namespace mis

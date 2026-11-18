@@ -2,11 +2,10 @@
 
 #include <array>
 #include <fstream>
+#include <json.hpp>
 #include <sstream>
 #include <stdexcept>
 #include <unordered_set>
-
-#include <json.hpp>
 
 namespace mis {
 

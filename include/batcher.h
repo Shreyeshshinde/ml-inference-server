@@ -3,12 +3,11 @@
 #include <atomic>
 #include <future>
 #include <memory>
+#include <opencv2/core.hpp>
 #include <optional>
 #include <string>
 #include <thread>
 #include <vector>
-
-#include <opencv2/core.hpp>
 
 #include "config.h"
 #include "metrics.h"
@@ -51,7 +50,7 @@ struct InferenceRequest {
 // Dynamic batching for one model: a bounded queue plus num_workers threads that
 // pop batches, run the model once per batch, and fulfill each request's promise.
 class Batcher {
-public:
+  public:
     Batcher(ModelConfig config, std::shared_ptr<const ModelVersion> initial, Labels labels,
             Metrics* metrics = nullptr);
     ~Batcher();
@@ -85,7 +84,7 @@ public:
     size_t queue_size() const { return queue_.size(); }
     const ModelConfig& config() const { return config_; }
 
-private:
+  private:
     using Entry = BoundedQueue<InferenceRequest>::Entry;
 
     void worker_loop(int worker_id);

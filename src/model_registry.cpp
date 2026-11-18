@@ -22,15 +22,17 @@ ModelRegistry::ModelRegistry(const ServerConfig& config, Labels labels)
         }
         entry->batcher = std::make_unique<Batcher>(mcfg, version, labels_, &entry->metrics);
         entry->batcher->start();
-        std::cerr << "loaded model '" << mcfg.name << "' v" << mcfg.version << " from "
-                  << mcfg.path << " (workers=" << mcfg.num_workers
-                  << ", max_batch_size=" << mcfg.max_batch_size << ")\n";
+        std::cerr << "loaded model '" << mcfg.name << "' v" << mcfg.version << " from " << mcfg.path
+                  << " (workers=" << mcfg.num_workers << ", max_batch_size=" << mcfg.max_batch_size
+                  << ")\n";
         names_.push_back(mcfg.name);
         models_.emplace(mcfg.name, std::move(entry));
     }
 }
 
-ModelRegistry::~ModelRegistry() { shutdown(); }
+ModelRegistry::~ModelRegistry() {
+    shutdown();
+}
 
 ModelEntry* ModelRegistry::find(const std::string& name) const {
     auto it = models_.find(name);

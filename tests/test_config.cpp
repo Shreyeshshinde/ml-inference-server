@@ -29,9 +29,9 @@ TEST(Config, RejectsBadInput) {
     EXPECT_THROW(mis::parse_config("{not json"), std::runtime_error);
     EXPECT_THROW(mis::parse_config(R"({"models": []})"), std::runtime_error);
     EXPECT_THROW(mis::parse_config(R"({"models": [{"path": "x"}]})"), std::runtime_error);
-    EXPECT_THROW(mis::parse_config(
-                     R"({"models": [{"name": "a", "path": "x", "max_batch_size": 0}]})"),
-                 std::runtime_error);
+    EXPECT_THROW(
+        mis::parse_config(R"({"models": [{"name": "a", "path": "x", "max_batch_size": 0}]})"),
+        std::runtime_error);
     EXPECT_THROW(mis::parse_config(
                      R"({"models": [{"name": "a", "path": "x"}, {"name": "a", "path": "y"}]})"),
                  std::runtime_error);

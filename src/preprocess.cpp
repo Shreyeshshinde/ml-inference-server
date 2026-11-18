@@ -1,18 +1,16 @@
 #include "preprocess.h"
 
 #include <cmath>
-#include <stdexcept>
-
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
+#include <stdexcept>
 
 namespace mis {
 
 cv::Mat decode_image(const std::string& bytes) {
     if (bytes.empty()) return {};
     // cv::Mat header over the existing bytes: no copy. imdecode only reads it.
-    cv::Mat raw(1, static_cast<int>(bytes.size()), CV_8UC1,
-                const_cast<char*>(bytes.data()));
+    cv::Mat raw(1, static_cast<int>(bytes.size()), CV_8UC1, const_cast<char*>(bytes.data()));
     try {
         return cv::imdecode(raw, cv::IMREAD_COLOR);  // empty Mat on failure
     } catch (const cv::Exception&) {

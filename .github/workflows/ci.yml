@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+env:
+  ORT_VERSION: "1.17.3"
+
+jobs:
+  build-and-test:
+    name: Build and test (-Werror)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential cmake libopencv-dev
+
+      - name: Cache ONNX Runtime
+        id: ort-cache
+        uses: actions/cache@v4
+        with:
+          path: ort
+          key: ort-nuget-${{ env.ORT_VERSION }}
+
+      - name: Download ONNX Runtime
+        if: steps.ort-cache.outputs.cache-hit != 'true'
+        run: bash scripts/fetch_onnxruntime.sh "$PWD/ort"
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DMIS_WERROR=ON -DONNXRUNTIME_ROOT="$PWD/ort"
+
+      - name: Build
+        run: cmake --build build -j "$(nproc)"
+
+      # Tests that need model files skip themselves (models are not in Git).
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  asan:
+    name: AddressSanitizer
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential cmake libopencv-dev
+
+      - name: Cache ONNX Runtime
+        id: ort-cache
+        uses: actions/cache@v4
+        with:
+          path: ort
+          key: ort-nuget-${{ env.ORT_VERSION }}
+
+      - name: Download ONNX Runtime
+        if: steps.ort-cache.outputs.cache-hit != 'true'
+        run: bash scripts/fetch_onnxruntime.sh "$PWD/ort"
+
+      # GCC 11's sanitizer runtime crashes at startup with the 32-bit mmap randomization
+      # newer kernels use. This runner is a throwaway VM, so lowering it here is safe.
+      - name: Make ASAN work on this kernel
+        run: sudo sysctl -w vm.mmap_rnd_bits=28
+
+      - name: Configure (ASAN)
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DENABLE_ASAN=ON -DONNXRUNTIME_ROOT="$PWD/ort"
+
+      - name: Build
+        run: cmake --build build -j "$(nproc)"
+
+      - name: Test under ASAN
+        env:
+          LSAN_OPTIONS: suppressions=${{ github.workspace }}/tests/lsan.supp
+        run: ctest --test-dir build --output-on-failure
+
+  format:
+    name: clang-format
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check formatting
+        run: clang-format-14 --dry-run --Werror src/*.cpp include/*.h tests/*.cpp tools/*.cpp

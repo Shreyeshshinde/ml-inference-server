@@ -17,8 +17,8 @@ double ms_between(Clock::time_point a, Clock::time_point b) {
 
 }  // namespace
 
-Batcher::Batcher(ModelConfig config, std::shared_ptr<const ModelVersion> initial,
-                 Labels labels, Metrics* metrics)
+Batcher::Batcher(ModelConfig config, std::shared_ptr<const ModelVersion> initial, Labels labels,
+                 Metrics* metrics)
     : config_(std::move(config)),
       current_(std::move(initial)),
       labels_(labels ? std::move(labels) : std::make_shared<const std::vector<std::string>>()),
@@ -27,10 +27,11 @@ Batcher::Batcher(ModelConfig config, std::shared_ptr<const ModelVersion> initial
     if (!current_ || !current_->runner) throw std::invalid_argument("Batcher needs a model");
 }
 
-Batcher::~Batcher() { shutdown(); }
+Batcher::~Batcher() {
+    shutdown();
+}
 
-std::shared_ptr<const ModelVersion> Batcher::swap_model(
-    std::shared_ptr<const ModelVersion> next) {
+std::shared_ptr<const ModelVersion> Batcher::swap_model(std::shared_ptr<const ModelVersion> next) {
     // One indivisible step: every reader sees either the old pointer or the new one.
     return std::atomic_exchange(&current_, std::move(next));
 }
@@ -144,8 +145,8 @@ void Batcher::process_batch(std::vector<Entry>& batch, int worker_id) {
                       "batch model=%s v=%d worker=%d size=%d pre_ms=%.2f inf_ms=%.2f "
                       "post_ms=%.2f\n",
                       config_.name.c_str(), model->version, worker_id, n,
-                      ms_between(t_start, t_inf),
-                      ms_between(t_inf, t_post), ms_between(t_post, t_end));
+                      ms_between(t_start, t_inf), ms_between(t_inf, t_post),
+                      ms_between(t_post, t_end));
         std::cerr << line;  // single << of a full line: no interleaving mid-line
     } catch (...) {
         // Any failure fails the WHOLE batch: every waiting client gets an error

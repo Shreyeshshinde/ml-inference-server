@@ -37,7 +37,7 @@ struct ReloadResult {
 // lifetime. The set of models never changes after construction, so find() needs no
 // lock; only a model's *version* changes (via reload).
 class ModelRegistry {
-public:
+  public:
     // Loads, warms up and starts every model. Throws if any model fails, so a bad
     // config stops the server at startup instead of at the first request.
     ModelRegistry(const ServerConfig& config, Labels labels);
@@ -61,7 +61,7 @@ public:
     // Graceful stop for every model: drain queues, join workers.
     void shutdown();
 
-private:
+  private:
     std::shared_ptr<const ModelVersion> load_version(const ModelConfig& cfg,
                                                      const std::string& path, int version);
     bool path_allowed(const std::string& path) const;

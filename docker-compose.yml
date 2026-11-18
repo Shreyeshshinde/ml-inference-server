@@ -1,0 +1,20 @@
+# Optional: the server plus Prometheus scraping its /metrics every 5 s.
+#   docker compose up --build
+#   server:      http://localhost:8080
+#   prometheus:  http://localhost:9090  (try: mis_latency_p99_ms or
+#                histogram_quantile(0.99, rate(mis_request_latency_seconds_bucket[1m])))
+services:
+  server:
+    build: .
+    image: mini-triton
+    ports:
+      - "8080:8080"
+
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    volumes:
+      - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      - server

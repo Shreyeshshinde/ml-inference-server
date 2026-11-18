@@ -1,11 +1,11 @@
 #pragma once
 
+#include <onnxruntime_cxx_api.h>
+
 #include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
-
-#include <onnxruntime_cxx_api.h>
 
 namespace mis {
 
@@ -13,7 +13,7 @@ namespace mis {
 // run() can then be called many times, and from several threads at once
 // (Ort::Session::Run is thread-safe).
 class ModelRunner {
-public:
+  public:
     // intra_op_threads: threads ORT uses inside one Run() call (e.g. to split a matmul).
     ModelRunner(const std::string& model_path, int intra_op_threads = 1);
 
@@ -24,7 +24,7 @@ public:
     int64_t num_classes() const { return num_classes_; }
     const std::string& path() const { return path_; }
 
-private:
+  private:
     // One Env per process is enough; it owns ORT's logging and global thread state.
     static Ort::Env& env();
 

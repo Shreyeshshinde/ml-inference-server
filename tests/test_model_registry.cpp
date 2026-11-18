@@ -9,7 +9,7 @@ namespace {
 const std::string kModel = std::string(MIS_MODELS_DIR) + "/mobilenet_v3_large.onnx";
 
 class RegistryTest : public ::testing::Test {
-protected:
+  protected:
     void SetUp() override {
         if (!std::filesystem::exists(kModel)) GTEST_SKIP() << "model not exported";
         mis::ServerConfig cfg;
@@ -50,14 +50,14 @@ TEST_F(RegistryTest, ReloadBumpsVersionOrUsesGivenOne) {
 TEST_F(RegistryTest, ReloadRejectsBadRequestsAndKeepsOldVersion) {
     EXPECT_EQ(registry_->reload("missing", "", std::nullopt).http_status, 404);
     // Path traversal out of the models folder.
-    EXPECT_EQ(registry_->reload("a", std::string(MIS_MODELS_DIR) + "/../CMakeLists.txt",
-                                std::nullopt)
-                  .http_status,
-              400);
+    EXPECT_EQ(
+        registry_->reload("a", std::string(MIS_MODELS_DIR) + "/../CMakeLists.txt", std::nullopt)
+            .http_status,
+        400);
     // Inside the folder but not a model.
-    EXPECT_EQ(registry_->reload("a", std::string(MIS_MODELS_DIR) + "/.gitkeep", std::nullopt)
-                  .http_status,
-              400);
+    EXPECT_EQ(
+        registry_->reload("a", std::string(MIS_MODELS_DIR) + "/.gitkeep", std::nullopt).http_status,
+        400);
     EXPECT_EQ(registry_->reload("a", "", 0).http_status, 400);
     EXPECT_EQ(registry_->find("a")->batcher->current_model()->version, 1);
 }

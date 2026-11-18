@@ -12,6 +12,11 @@ endif()
 
 # Quality bar: warnings on everywhere, optional AddressSanitizer for leak checks.
 add_compile_options(-Wall -Wextra)
+# CI turns warnings into errors so a warning can never be merged unnoticed.
+option(MIS_WERROR "Treat compiler warnings as errors" OFF)
+if(MIS_WERROR)
+  add_compile_options(-Werror)
+endif()
 option(ENABLE_ASAN "Build with AddressSanitizer" OFF)
 if(ENABLE_ASAN)
   add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
@@ -61,6 +66,11 @@ add_executable(classify tools/classify.cpp)
 target_link_libraries(classify PRIVATE server_core)
 
 # ---- Tests ----
+# OFF in the Docker image build: no test download/compile needed to ship the server.
+option(MIS_BUILD_TESTS "Build the GoogleTest unit tests" ON)
+if(NOT MIS_BUILD_TESTS)
+  return()
+endif()
 include(FetchContent)
 FetchContent_Declare(googletest
   URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.tar.gz)
@@ -76,7 +86,8 @@ add_executable(unit_tests
   tests/test_server.cpp
   tests/test_request_queue.cpp
   tests/test_batcher.cpp
-  tests/test_model_registry.cpp)
+  tests/test_model_registry.cpp
+  tests/test_metrics.cpp)
 target_link_libraries(unit_tests PRIVATE server_core GTest::gtest_main)
 target_compile_definitions(unit_tests PRIVATE
   MIS_MODELS_DIR="${CMAKE_SOURCE_DIR}/models"

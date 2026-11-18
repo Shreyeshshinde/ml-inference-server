@@ -1,10 +1,9 @@
 #pragma once
 
 #include <array>
+#include <opencv2/core.hpp>
 #include <string>
 #include <vector>
-
-#include <opencv2/core.hpp>
 
 namespace mis {
 

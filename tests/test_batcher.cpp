@@ -1,9 +1,8 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
-#include <thread>
-
 #include <opencv2/imgproc.hpp>
+#include <thread>
 
 #include "batcher.h"
 #include "preprocess.h"
@@ -35,10 +34,12 @@ mis::ModelConfig small_config() {
     return cfg;
 }
 
-auto far_deadline() { return mis::Clock::now() + 30s; }
+auto far_deadline() {
+    return mis::Clock::now() + 30s;
+}
 
 class BatcherTest : public ::testing::Test {
-protected:
+  protected:
     void SetUp() override {
         if (!std::filesystem::exists(kModel)) GTEST_SKIP() << "model not exported";
         runner_ = std::make_shared<mis::ModelRunner>(kModel);
@@ -133,7 +134,8 @@ TEST_F(BatcherTest, ModelFailureFailsEveryRequestInTheBatch) {
 TEST_F(BatcherTest, ShutdownDrainsQueuedRequests) {
     mis::Batcher batcher(small_config(), v1(), nullptr);
     std::vector<std::future<mis::InferenceResult>> futs;
-    for (int i = 0; i < 20; ++i) futs.push_back(*batcher.submit(make_image(i % 5), 5, far_deadline()));
+    for (int i = 0; i < 20; ++i)
+        futs.push_back(*batcher.submit(make_image(i % 5), 5, far_deadline()));
     batcher.start();
     batcher.shutdown();  // returns only after workers emptied the queue
     for (auto& f : futs) {
@@ -159,7 +161,7 @@ TEST_F(BatcherTest, SwapModelServesNewVersionAndFreesOldOne) {
         EXPECT_EQ(old->version, 1);
         old_runner = old->runner;
         runner_.reset();  // the fixture's reference, so only `old` can keep it alive
-    }  // `old` goes out of scope here
+    }                     // `old` goes out of scope here
     // A worker may still hold its per-batch copy for a moment (it logs after replying),
     // so give it a short grace period before asserting the old model was freed.
     for (int i = 0; i < 100 && !old_runner.expired(); ++i) std::this_thread::sleep_for(10ms);

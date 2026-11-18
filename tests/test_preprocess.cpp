@@ -45,7 +45,7 @@ TEST(Preprocess, CenterCropTakesTheMiddle) {
     // (no-op) and center crop, every pixel should be red.
     PreprocessConfig cfg;
     cfg.resize_short = 224;
-    cv::Mat img(224, 448, CV_8UC3, cv::Scalar(255, 0, 0));       // blue
+    cv::Mat img(224, 448, CV_8UC3, cv::Scalar(255, 0, 0));         // blue
     img(cv::Rect(112, 0, 224, 224)).setTo(cv::Scalar(0, 0, 255));  // red middle
     auto t = mis::preprocess(img, cfg);
     float red_r = (1.f - cfg.mean[0]) / cfg.std[0];

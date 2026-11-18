@@ -36,7 +36,7 @@ TEST(RequestQueue, PartialBatchWaitsForMaxWait) {
     auto batch = q.pop_batch(8, 50ms);
     const auto waited = mis::Clock::now() - t0;
     EXPECT_EQ(batch.size(), 2u);
-    EXPECT_GE(waited, 40ms);  // waited for more items...
+    EXPECT_GE(waited, 40ms);   // waited for more items...
     EXPECT_LT(waited, 500ms);  // ...but gave up near the deadline
 }
 
@@ -78,9 +78,9 @@ TEST(RequestQueue, CloseWakesBlockedConsumerAndDrains) {
     BoundedQueue<int> q2(100);
     q2.push(7);
     q2.close();
-    EXPECT_FALSE(q2.push(8));                 // closed: no new work
-    auto rest = q2.pop_batch(4, 1000ms);      // existing work is still handed out...
-    ASSERT_EQ(rest.size(), 1u);               // ...without waiting for max_wait
+    EXPECT_FALSE(q2.push(8));             // closed: no new work
+    auto rest = q2.pop_batch(4, 1000ms);  // existing work is still handed out...
+    ASSERT_EQ(rest.size(), 1u);           // ...without waiting for max_wait
     EXPECT_EQ(rest[0].value, 7);
     EXPECT_TRUE(q2.pop_batch(4, 0ms).empty());  // then the "exit" signal
 }

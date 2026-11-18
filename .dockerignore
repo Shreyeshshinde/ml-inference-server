@@ -1,0 +1,11 @@
+# Keep the build context small: Docker only needs sources, config and scripts.
+.git
+build
+build-*
+models
+data/imagenette2-320
+data/*.tgz
+results
+**/__pycache__
+.venv
+venv

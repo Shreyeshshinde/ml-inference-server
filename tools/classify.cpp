@@ -6,11 +6,10 @@
 #include <cstring>
 #include <fstream>
 #include <iostream>
+#include <json.hpp>
 #include <sstream>
 #include <string>
 #include <vector>
-
-#include <json.hpp>
 
 #include "model_runner.h"
 #include "postprocess.h"

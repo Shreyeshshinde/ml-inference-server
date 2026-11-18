@@ -1,14 +1,13 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
+#include <json.hpp>
 #include <mutex>
+#include <opencv2/imgcodecs.hpp>
+#include <opencv2/imgproc.hpp>
 #include <random>
 #include <set>
 #include <thread>
-
-#include <json.hpp>
-#include <opencv2/imgcodecs.hpp>
-#include <opencv2/imgproc.hpp>
 
 #include "postprocess.h"
 #include "server.h"
@@ -24,7 +23,7 @@ const std::string kModelPath = std::string(MIS_MODELS_DIR) + "/mobilenet_v3_larg
 const std::string kLabels = std::string(MIS_SOURCE_DIR) + "/data/imagenet_labels.txt";
 
 class ServerTest : public ::testing::Test {
-protected:
+  protected:
     void SetUp() override {
         if (!std::filesystem::exists(kModelPath)) GTEST_SKIP() << "model not exported";
         start_server(default_model_config());
@@ -259,8 +258,8 @@ TEST_F(ServerTest, ReloadEndpoint) {
     ASSERT_TRUE(unknown);
     EXPECT_EQ(unknown->status, 404);
 
-    auto bad_json = client_->Post("/v1/models/mobilenet_v3_large/reload", "{oops",
-                                  "application/json");
+    auto bad_json =
+        client_->Post("/v1/models/mobilenet_v3_large/reload", "{oops", "application/json");
     ASSERT_TRUE(bad_json);
     EXPECT_EQ(bad_json->status, 400);
 

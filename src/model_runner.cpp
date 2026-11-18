@@ -11,8 +11,7 @@ Ort::Env& ModelRunner::env() {
     return instance;
 }
 
-ModelRunner::ModelRunner(const std::string& model_path, int intra_op_threads)
-    : path_(model_path) {
+ModelRunner::ModelRunner(const std::string& model_path, int intra_op_threads) : path_(model_path) {
     Ort::SessionOptions opts;
     opts.SetIntraOpNumThreads(intra_op_threads);
     opts.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);

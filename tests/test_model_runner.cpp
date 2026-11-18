@@ -9,7 +9,9 @@
 namespace {
 const std::string kModel = std::string(MIS_MODELS_DIR) + "/mobilenet_v3_large.onnx";
 
-bool have_model() { return std::filesystem::exists(kModel); }
+bool have_model() {
+    return std::filesystem::exists(kModel);
+}
 }  // namespace
 
 TEST(ModelRunner, MissingFileThrows) {
